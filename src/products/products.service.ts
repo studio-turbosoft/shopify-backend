@@ -1,56 +1,58 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
-import { Product } from './product.entity';
+import { Product } from '../generated/prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { FK_VIOLATION, isPrismaError, RECORD_NOT_FOUND, toNumber, UNIQUE_VIOLATION } from '../common/prisma-errors';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
-const UNIQUE_VIOLATION = '23505';
-const FK_VIOLATION = '23503';
+/** API shape: price as a number instead of Prisma.Decimal. */
+export const toProductDto = (p: Product) => ({ ...p, price: toNumber(p.price) });
 
 @Injectable()
 export class ProductsService {
-  constructor(@InjectRepository(Product) private readonly repo: Repository<Product>) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  findAll() {
-    return this.repo.find({ order: { id: 'DESC' } });
+  async findAll() {
+    const products = await this.prisma.product.findMany({ orderBy: { id: 'desc' } });
+    return products.map(toProductDto);
   }
 
   async findOne(id: number) {
-    const product = await this.repo.findOneBy({ id });
+    const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) throw new NotFoundException(`Product ${id} not found`);
-    return product;
+    return toProductDto(product);
   }
 
   async create(dto: CreateProductDto) {
-    return this.save(this.repo.create(dto));
+    try {
+      return toProductDto(await this.prisma.product.create({ data: dto }));
+    } catch (e) {
+      throw this.mapWriteError(e, dto.sku);
+    }
   }
 
   async update(id: number, dto: UpdateProductDto) {
-    const product = await this.findOne(id);
-    return this.save(this.repo.merge(product, dto));
+    try {
+      return toProductDto(await this.prisma.product.update({ where: { id }, data: dto }));
+    } catch (e) {
+      throw this.mapWriteError(e, dto.sku, id);
+    }
   }
 
   async remove(id: number) {
-    const product = await this.findOne(id);
     try {
-      await this.repo.remove(product);
+      await this.prisma.product.delete({ where: { id } });
     } catch (e) {
-      if (e instanceof QueryFailedError && (e as any).code === FK_VIOLATION) {
+      if (isPrismaError(e, FK_VIOLATION)) {
         throw new ConflictException('Product is used in existing orders and cannot be deleted');
       }
-      throw e;
+      throw this.mapWriteError(e, undefined, id);
     }
   }
 
-  private async save(product: Product) {
-    try {
-      return await this.repo.save(product);
-    } catch (e) {
-      if (e instanceof QueryFailedError && (e as any).code === UNIQUE_VIOLATION) {
-        throw new ConflictException(`SKU "${product.sku}" already exists`);
-      }
-      throw e;
-    }
+  private mapWriteError(e: unknown, sku?: string, id?: number) {
+    if (isPrismaError(e, UNIQUE_VIOLATION)) return new ConflictException(`SKU "${sku}" already exists`);
+    if (isPrismaError(e, RECORD_NOT_FOUND)) return new NotFoundException(`Product ${id} not found`);
+    return e;
   }
 }

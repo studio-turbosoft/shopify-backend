@@ -12,7 +12,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { OrderStatus } from '../order.entity';
+import { OrderStatus } from '../../generated/prisma/client';
 
 export class OrderItemDto {
   @IsInt()

@@ -1,0 +1,65 @@
+// Prisma schema. Table/column/enum names match the tables the old TypeORM entities created,
+// so an existing database keeps working.
+// The connection URL lives in prisma.config.ts (DATABASE_URL).
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrderStatus {
+  pending
+  paid
+  shipped
+  delivered
+  cancelled
+
+  @@map("orders_status_enum")
+}
+
+model Product {
+  id          Int         @id @default(autoincrement())
+  name        String      @db.VarChar(200)
+  sku         String      @unique @db.VarChar(64)
+  description String?
+  price       Decimal     @db.Decimal(12, 2)
+  stock       Int         @default(0)
+  createdAt   DateTime    @default(now()) @db.Timestamp(6)
+  updatedAt   DateTime    @default(now()) @updatedAt @db.Timestamp(6)
+  orderItems  OrderItem[]
+
+  @@map("products")
+}
+
+model Order {
+  id            Int         @id @default(autoincrement())
+  customerName  String      @db.VarChar(200)
+  customerEmail String      @db.VarChar(320)
+  status        OrderStatus @default(pending)
+  total         Decimal     @default(0) @db.Decimal(12, 2)
+  createdAt     DateTime    @default(now()) @db.Timestamp(6)
+  updatedAt     DateTime    @default(now()) @updatedAt @db.Timestamp(6)
+  items         OrderItem[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        Int     @id @default(autoincrement())
+  orderId   Int
+  // Deleting an order deletes its lines.
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId Int
+  // RESTRICT: a product referenced by an order cannot be deleted.
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity  Int
+  /// Price captured at order time, so later product price changes don't rewrite history.
+  unitPrice Decimal @db.Decimal(12, 2)
+
+  @@map("order_items")
+}

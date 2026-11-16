@@ -3,3 +3,6 @@ dist
 .env
 .env.*
 !.env.example
+
+# Prisma generated client (rebuilt by `prisma generate`)
+src/generated
