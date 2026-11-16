@@ -1,8 +1,11 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import { ShopifySessionGuard } from '../auth/shopify-session.guard';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 
+// Only callable from the app inside the Shopify admin (valid session token).
+@UseGuards(ShopifySessionGuard)
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
