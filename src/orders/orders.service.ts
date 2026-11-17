@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrderStatus, Prisma } from '../generated/prisma/client';
+import { OrderStatus, Prisma, ProductStatus } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { toNumber } from '../common/prisma-errors';
+import { toNumber } from '../common/decimal';
 import { toProductDto } from '../products/products.service';
 import { CreateOrderDto, OrderItemDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
@@ -132,8 +132,13 @@ export class OrdersService {
     const items: NewItem[] = [];
     for (const [productId, quantity] of merged) {
       const product = byId.get(productId)!;
-      if (reserve) {
-        if (product.stock < quantity) {
+      // Draft / archived products can stay on orders that already had them, but not be newly added.
+      if (product.status !== ProductStatus.active && !prevPrice.has(productId)) {
+        throw new BadRequestException(`"${product.name}" is ${product.status} and can't be ordered`);
+      }
+      // Untracked products never touch stock.
+      if (reserve && product.trackInventory) {
+        if (!product.continueSellingWhenOutOfStock && product.stock < quantity) {
           throw new BadRequestException(
             `Not enough stock for "${product.name}" (requested ${quantity}, available ${product.stock})`,
           );
@@ -146,9 +151,10 @@ export class OrdersService {
   }
 
   private async releaseStock(tx: Tx, items: { productId: number; quantity: number }[]) {
+    // Only products that track inventory had stock taken, so only they get it back.
     for (const item of items) {
-      await tx.product.update({
-        where: { id: item.productId },
+      await tx.product.updateMany({
+        where: { id: item.productId, trackInventory: true },
         data: { stock: { increment: item.quantity } },
       });
     }

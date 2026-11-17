@@ -1,12 +1,19 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Product } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { FK_VIOLATION, isPrismaError, RECORD_NOT_FOUND, toNumber, UNIQUE_VIOLATION } from '../common/prisma-errors';
+import { toNumber, toNumberOrNull } from '../common/decimal';
+import { FK_VIOLATION, isPrismaError, RECORD_NOT_FOUND, UNIQUE_VIOLATION } from '../common/prisma-errors';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
-/** API shape: price as a number instead of Prisma.Decimal. */
-export const toProductDto = (p: Product) => ({ ...p, price: toNumber(p.price) });
+/** API shape: money and weight as numbers instead of Prisma.Decimal. */
+export const toProductDto = (p: Product) => ({
+  ...p,
+  price: toNumber(p.price),
+  compareAtPrice: toNumberOrNull(p.compareAtPrice),
+  costPerItem: toNumberOrNull(p.costPerItem),
+  weight: toNumberOrNull(p.weight),
+});
 
 @Injectable()
 export class ProductsService {
@@ -50,7 +57,7 @@ export class ProductsService {
     }
   }
 
-  private mapWriteError(e: unknown, sku?: string, id?: number) {
+  private mapWriteError(e: unknown, sku?: string | null, id?: number) {
     if (isPrismaError(e, UNIQUE_VIOLATION)) return new ConflictException(`SKU "${sku}" already exists`);
     if (isPrismaError(e, RECORD_NOT_FOUND)) return new NotFoundException(`Product ${id} not found`);
     return e;
