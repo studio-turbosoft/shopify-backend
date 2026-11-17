@@ -13,6 +13,42 @@ NestJS + Prisma + PostgreSQL API for products and orders. Used by `../react-app`
 The app starts even if the database is down. Prisma connects on the first query, so `/` and
 `/api/test-records` keep working and only the products/orders routes fail.
 
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `npm install` | Install dependencies, then run `prisma generate` (postinstall) |
+| `npm run build` | `prisma generate` + `nest build` into `dist/` |
+| `npm run start` | Start the API once |
+| `npm run start:dev` | Start with watch mode (restarts on changes) |
+| `npm run start:prod` | Run the built app (`node dist/main`, run `npm run build` first) |
+| `npm audit` / `npm audit fix` | List / fix known vulnerabilities in dependencies |
+
+Database commands are in [Prisma](#prisma) below.
+
+### Windows: folder name with `&`
+
+On Windows, npm runs scripts through `cmd.exe`, which treats `&` as a command separator. With a
+parent folder like `shopify-r&d`, every script that calls `prisma` or `nest` fails with
+`'d\...\node_modules\.bin\' is not recognized` or `Cannot find module 'C:\...\prisma\build\index.js'`
+(the install itself succeeds; only `postinstall` fails).
+
+Fix: rename the folder so it has no `&` (e.g. `shopify-rnd`) and run `npm install` again.
+
+Until then, run the tools with `node` directly:
+
+| Instead of | Run |
+| --- | --- |
+| `prisma generate` (postinstall) | `node node_modules/prisma/build/index.js generate` |
+| `npm run build` | `node node_modules/prisma/build/index.js generate` then `node node_modules/@nestjs/cli/bin/nest.js build` |
+| `npm run start` | `node node_modules/@nestjs/cli/bin/nest.js start` |
+| `npm run start:dev` | `node node_modules/@nestjs/cli/bin/nest.js start --watch` |
+| `npm run start:prod` | works as is (`node dist/main`) |
+| `npm run db:push` | `node node_modules/prisma/build/index.js db push` |
+| `npm run db:migrate` | `node node_modules/prisma/build/index.js migrate dev` |
+| `npm run db:deploy` | `node node_modules/prisma/build/index.js migrate deploy` |
+| `npm run db:studio` | `node node_modules/prisma/build/index.js studio` |
+
 ## Prisma
 
 | Command | What it does |
