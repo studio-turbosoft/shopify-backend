@@ -4,6 +4,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
 import { OrdersModule } from './orders/orders.module';
 import { DevModule } from './dev/dev.module';
+import { ShopifyModule } from './shopify/shopify.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { DevModule } from './dev/dev.module';
     PrismaModule,
     ProductsModule,
     OrdersModule,
+    ShopifyModule,
     DevModule,
   ],
 })

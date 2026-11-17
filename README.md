@@ -46,6 +46,25 @@ The app starts even if the database is down. Prisma connects on the first query,
 
 Status values: `pending`, `paid`, `shipped`, `delivered`, `cancelled`.
 
+## Shopify product sync
+
+Every product write is pushed to the Shopify store of the request's session (Admin GraphQL,
+`SHOPIFY_API_VERSION`, default `2026-10`). Mapping: `src/shopify/product-mapper.ts`; calls:
+`src/shopify/product-sync.service.ts`.
+
+| Our action | Shopify | On failure |
+| --- | --- | --- |
+| Create / update product | [`productSet`](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/productSet) (synchronous) first, then the local save with the returned IDs and `shopifySyncedAt = now()` | Shopify userErrors → 422, Shopify unreachable / denied → 502, nothing saved locally. If the local save fails after Shopify created the product, the Shopify product is deleted again (`productDelete`). |
+| Update a product not linked yet | `productSet` creates it in Shopify and links it | as above |
+| Delete product | 409 if it's on an order; else [`productDelete`](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/productDelete) (already gone in Shopify is fine), then local delete | Shopify error → 422/502, nothing deleted locally |
+| Order create / update / cancel / delete | After the transaction commits: [`inventorySetQuantities`](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/inventorySetQuantities) ("available" = our `stock`) for each affected tracked + linked product | Best effort: the order stays saved; the product gets `shopifySyncedAt = null` (shown as "Not synced"). Saving the product again pushes it. |
+
+- Inventory is set at the store's primary location ([`location`](https://shopify.dev/docs/api/admin-graphql/2026-10/queries/location) with no id), looked up once per shop and cached in memory.
+- Only one image (`imageUrl`) is sent, as `files`, and only when it changed (productSet replaces the product's files with what is sent).
+- Clearing the vendor locally leaves Shopify's vendor as is (Shopify fills in the shop name).
+- No session (local dev with `SHOPIFY_AUTH=off` and no token): writes are local only, `shopifySyncedAt` is set to null and a warning is logged.
+- Required access scopes: `write_products`, `write_inventory`, `read_inventory`, `read_locations` (Dev Dashboard → app → Versions → Access scopes; release the version and reopen the app in the store). A missing scope returns a 502 that names the scope to add.
+
 ## Stock rules
 
 - An order reserves stock for its items unless it is `cancelled`. Creating an order with more than the available stock returns 400.

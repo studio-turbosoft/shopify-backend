@@ -8,6 +8,8 @@ export interface ShopifySession {
   shop: string;
   /** Shopify admin user id (the token's `sub`) */
   userId: string;
+  /** The verified session token itself; token exchange swaps it for an Admin API access token. */
+  token: string;
 }
 
 /** Clock difference allowed between Shopify and this server, in seconds. */
@@ -23,20 +25,24 @@ const CLOCK_SKEW = 10;
  *  - not expired / not used before `nbf`
  *  - `iss` and `dest` point at the same *.myshopify.com shop
  *
- * Local development (outside the Shopify admin, no token): set SHOPIFY_AUTH=off.
- * Never set that on the server.
+ * Local development (outside the Shopify admin, no token): set SHOPIFY_AUTH=off to let requests
+ * without a token through. Tokens that are sent are still verified. Never set that on the server.
  */
 @Injectable()
 export class ShopifySessionGuard implements CanActivate {
   constructor(private readonly config: ConfigService) {}
 
   canActivate(context: ExecutionContext): boolean {
-    if (this.config.get('SHOPIFY_AUTH') === 'off') return true;
-
     const req = context.switchToHttp().getRequest();
     const header: string | undefined = req.headers?.authorization;
     const token = header?.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
-    if (!token) throw new UnauthorizedException('Missing Shopify session token');
+
+    if (!token) {
+      // Local dev: allow requests without a token. A token that IS sent is still checked below,
+      // so the app also works from inside the Shopify admin in dev mode.
+      if (this.config.get('SHOPIFY_AUTH') === 'off') return true;
+      throw new UnauthorizedException('Missing Shopify session token');
+    }
 
     req.shopifySession = this.verify(token);
     return true;
@@ -79,7 +85,7 @@ export class ShopifySessionGuard implements CanActivate {
       throw new UnauthorizedException('Session token shop mismatch');
     }
 
-    return { shop, userId: String(p.sub ?? '') };
+    return { shop, userId: String(p.sub ?? ''), token };
   }
 
   private decode(part: string): any {

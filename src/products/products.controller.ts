@@ -1,10 +1,12 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common';
-import { ShopifySessionGuard } from '../auth/shopify-session.guard';
+import { OptionalSession } from '../auth/optional-session.decorator';
+import { ShopifySessionGuard, type ShopifySession } from '../auth/shopify-session.guard';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
 // Only callable from the app inside the Shopify admin (valid session token).
+// Writes are pushed to that store; with SHOPIFY_AUTH=off and no token they stay local.
 @UseGuards(ShopifySessionGuard)
 @Controller('products')
 export class ProductsController {
@@ -21,18 +23,22 @@ export class ProductsController {
   }
 
   @Post()
-  create(@Body() dto: CreateProductDto) {
-    return this.products.create(dto);
+  create(@Body() dto: CreateProductDto, @OptionalSession() session?: ShopifySession) {
+    return this.products.create(dto, session);
   }
 
   @Patch(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateProductDto) {
-    return this.products.update(id, dto);
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateProductDto,
+    @OptionalSession() session?: ShopifySession,
+  ) {
+    return this.products.update(id, dto, session);
   }
 
   @Delete(':id')
   @HttpCode(204)
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.products.remove(id);
+  remove(@Param('id', ParseIntPipe) id: number, @OptionalSession() session?: ShopifySession) {
+    return this.products.remove(id, session);
   }
 }

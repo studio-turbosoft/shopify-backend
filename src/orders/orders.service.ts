@@ -3,6 +3,8 @@ import { OrderStatus, Prisma, ProductStatus } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { toNumber } from '../common/decimal';
 import { toProductDto } from '../products/products.service';
+import type { ShopifySession } from '../auth/shopify-session.guard';
+import { ProductSyncService } from '../shopify/product-sync.service';
 import { CreateOrderDto, OrderItemDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 
@@ -28,10 +30,16 @@ type NewItem = { productId: number; quantity: number; unitPrice: Prisma.Decimal 
  * Stock rule: an order holds stock for its items unless it is cancelled.
  * Every write runs in a transaction that releases the old hold and applies the new one,
  * with product rows locked (SELECT ... FOR UPDATE) so concurrent orders cannot oversell.
+ *
+ * After the transaction commits, the new stock of the affected products is pushed to Shopify
+ * (best effort: the order is already saved, so a failed push only marks those products out of sync).
  */
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sync: ProductSyncService,
+  ) {}
 
   async findAll() {
     const orders = await this.prisma.order.findMany({ orderBy: { id: 'desc' }, include: withItems });
@@ -42,7 +50,7 @@ export class OrdersService {
     return toOrderDto(await this.load(this.prisma, id));
   }
 
-  async create(dto: CreateOrderDto) {
+  async create(dto: CreateOrderDto, session?: ShopifySession) {
     const order = await this.prisma.$transaction(async (tx) => {
       const status = dto.status ?? OrderStatus.pending;
       const items = await this.buildItems(tx, dto.items, status !== OrderStatus.cancelled);
@@ -57,10 +65,13 @@ export class OrdersService {
       });
       return this.load(tx, created.id);
     });
+    // Stock only moved if the order holds it (not created as cancelled).
+    if (order.status !== OrderStatus.cancelled) await this.pushStock(session, order.items, order.id);
     return toOrderDto(order);
   }
 
-  async update(id: number, dto: UpdateOrderDto) {
+  async update(id: number, dto: UpdateOrderDto, session?: ShopifySession) {
+    let stockTouched: { productId: number }[] = [];
     const order = await this.prisma.$transaction(async (tx) => {
       const order = await this.load(tx, id);
       const newStatus = dto.status ?? order.status;
@@ -78,20 +89,31 @@ export class OrdersService {
         const items = await this.buildItems(tx, wanted, willHold, order.items);
         data.total = this.sum(items);
         data.items = { deleteMany: {}, create: items };
+        stockTouched = [...order.items, ...items];
       }
 
       await tx.order.update({ where: { id }, data });
       return this.load(tx, id);
     });
+    await this.pushStock(session, stockTouched, id);
     return toOrderDto(order);
   }
 
-  async remove(id: number) {
-    await this.prisma.$transaction(async (tx) => {
+  async remove(id: number, session?: ShopifySession) {
+    const released = await this.prisma.$transaction(async (tx) => {
       const order = await this.load(tx, id);
-      if (order.status !== OrderStatus.cancelled) await this.releaseStock(tx, order.items);
+      const holding = order.status !== OrderStatus.cancelled;
+      if (holding) await this.releaseStock(tx, order.items);
       await tx.order.delete({ where: { id } }); // items are removed by ON DELETE CASCADE
+      return holding ? order.items : [];
     });
+    await this.pushStock(session, released, id);
+  }
+
+  /** Push the committed stock of these products to Shopify (untracked / unlinked ones are skipped). */
+  private async pushStock(session: ShopifySession | undefined, items: { productId: number }[], orderId: number) {
+    const ids = [...new Set(items.map((i) => i.productId))];
+    await this.sync.syncStock(session, ids, orderId);
   }
 
   private async load(db: Tx, id: number) {

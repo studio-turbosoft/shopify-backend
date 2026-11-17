@@ -12,6 +12,21 @@ datasource db {
   provider = "postgresql"
 }
 
+/// A store that has opened the app. Holds the offline Admin API access token from token exchange.
+model Shop {
+  id          Int      @id @default(autoincrement())
+  /// e.g. "my-store.myshopify.com"
+  domain      String   @unique @db.VarChar(255)
+  /// Offline access token for the Admin API. Secret: never send it to the browser or logs.
+  accessToken String   @db.VarChar(255)
+  /// Scopes the token was granted, e.g. "read_products,write_products"
+  scope       String?  @db.VarChar(1024)
+  createdAt   DateTime @default(now()) @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamp(6)
+
+  @@map("shops")
+}
+
 enum OrderStatus {
   pending
   paid
