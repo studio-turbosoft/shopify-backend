@@ -8,6 +8,3 @@ export const RECORD_NOT_FOUND = 'P2025';
 export function isPrismaError(e: unknown, code: string): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === code;
 }
-
-/** Postgres NUMERIC comes back as Prisma.Decimal; the API exposes plain numbers. */
-export const toNumber = (d: Prisma.Decimal | number) => Number(d);

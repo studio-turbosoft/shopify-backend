@@ -1,10 +1,14 @@
 import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: keeps the unparsed body on req.rawBody, needed to verify Shopify webhook HMACs.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+  // Product webhooks carry every variant, which can exceed the default 100 kb.
+  app.useBodyParser('json', { limit: '5mb' });
   app.setGlobalPrefix('api');
   // Health check at the root URL (outside the /api prefix): GET /
   app.getHttpAdapter().get('/', (_req: any, res: any) => {

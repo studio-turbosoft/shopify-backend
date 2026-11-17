@@ -12,6 +12,21 @@ datasource db {
   provider = "postgresql"
 }
 
+/// A store that has opened the app. Holds the offline Admin API access token from token exchange.
+model Shop {
+  id          Int      @id @default(autoincrement())
+  /// e.g. "my-store.myshopify.com"
+  domain      String   @unique @db.VarChar(255)
+  /// Offline access token for the Admin API. Secret: never send it to the browser or logs.
+  accessToken String   @db.VarChar(255)
+  /// Scopes the token was granted, e.g. "read_products,write_products"
+  scope       String?  @db.VarChar(1024)
+  createdAt   DateTime @default(now()) @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamp(6)
+
+  @@map("shops")
+}
+
 enum OrderStatus {
   pending
   paid
@@ -22,16 +37,89 @@ enum OrderStatus {
   @@map("orders_status_enum")
 }
 
+/// Shopify-style product status: only active products can be added to new orders.
+enum ProductStatus {
+  active
+  draft
+  archived
+
+  @@map("products_status_enum")
+}
+
+enum WeightUnit {
+  kg
+  g
+  lb
+  oz
+
+  @@map("products_weight_unit_enum")
+}
+
+/// Mirrors a single-variant Shopify product. Shopify Admin GraphQL equivalents are noted per field
+/// (product.* / variant.* / inventoryItem.*), so a sync job can map 1:1.
 model Product {
-  id          Int         @id @default(autoincrement())
-  name        String      @db.VarChar(200)
-  sku         String      @unique @db.VarChar(64)
+  id          Int           @id @default(autoincrement())
+  /// product.title (Shopify max 255)
+  name        String        @db.VarChar(255)
+  /// variant.sku: optional in Shopify; NULLs don't clash with the unique index
+  sku         String?       @unique @db.VarChar(64)
+  /// product.descriptionHtml (stored as plain text here; convert when syncing)
   description String?
-  price       Decimal     @db.Decimal(12, 2)
-  stock       Int         @default(0)
-  createdAt   DateTime    @default(now()) @db.Timestamp(6)
-  updatedAt   DateTime    @default(now()) @updatedAt @db.Timestamp(6)
-  orderItems  OrderItem[]
+  /// product.status: ACTIVE | DRAFT | ARCHIVED
+  status      ProductStatus @default(active)
+  /// product.media (first image, by URL)
+  imageUrl    String?       @db.VarChar(2048)
+
+  // Shopify sync: set once the product exists in Shopify. GIDs, e.g. "gid://shopify/Product/123".
+  shopifyProductId       String?   @unique @db.VarChar(64)
+  shopifyVariantId       String?   @unique @db.VarChar(64)
+  shopifyInventoryItemId String?   @unique @db.VarChar(64)
+  /// Shopify's product.updatedAt when this row last matched Shopify (from productSet, the import or
+  /// a webhook), not our clock. products/update webhooks with updated_at <= this are our own change
+  /// and are ignored (loop guard). Stock pushes don't change it (they don't bump product.updatedAt).
+  /// null = not synced: never pushed, or the last push failed.
+  shopifySyncedAt        DateTime? @db.Timestamp(6)
+
+  // Organization
+  /// product.productType
+  productType String?  @db.VarChar(255)
+  /// product.vendor
+  vendor      String?  @db.VarChar(255)
+  /// product.tags
+  tags        String[] @default([])
+
+  // Pricing
+  /// variant.price
+  price          Decimal  @db.Decimal(12, 2)
+  /// variant.compareAtPrice: "was" price shown struck through; should be higher than price.
+  compareAtPrice Decimal? @db.Decimal(12, 2)
+  /// inventoryItem.unitCost: used for profit and margin. Never shown to customers.
+  costPerItem    Decimal? @db.Decimal(12, 2)
+  /// variant.taxable
+  chargeTax      Boolean  @default(true)
+
+  // Inventory
+  /// variant.barcode
+  barcode                       String? @db.VarChar(255)
+  /// inventoryItem.tracked: when false, orders neither check nor change stock.
+  trackInventory                Boolean @default(true)
+  /// variant.inventoryPolicy: CONTINUE (true) | DENY (false). When true, orders may take stock below zero.
+  continueSellingWhenOutOfStock Boolean @default(false)
+  /// "available" at the shop's primary location (pushed by productSet / inventorySetQuantities,
+  /// read back by the import and inventory_levels/update). Other locations are not mirrored.
+  stock                         Int     @default(0)
+
+  // Shipping
+  /// inventoryItem.requiresShipping
+  requiresShipping Boolean    @default(true)
+  /// inventoryItem.measurement.weight.value
+  weight           Decimal?   @db.Decimal(10, 3)
+  /// inventoryItem.measurement.weight.unit: kg→KILOGRAMS, g→GRAMS, lb→POUNDS, oz→OUNCES
+  weightUnit       WeightUnit @default(kg)
+
+  createdAt  DateTime    @default(now()) @db.Timestamp(6)
+  updatedAt  DateTime    @default(now()) @updatedAt @db.Timestamp(6)
+  orderItems OrderItem[]
 
   @@map("products")
 }

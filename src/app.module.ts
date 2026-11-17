@@ -3,8 +3,8 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
 import { OrdersModule } from './orders/orders.module';
-import { HelloController } from './hello.controller';
-import { TestRecordsController } from './test-records.controller';
+import { DevModule } from './dev/dev.module';
+import { ShopifyModule } from './shopify/shopify.module';
 
 @Module({
   imports: [
@@ -18,7 +18,8 @@ import { TestRecordsController } from './test-records.controller';
     PrismaModule,
     ProductsModule,
     OrdersModule,
+    ShopifyModule,
+    DevModule,
   ],
-  controllers: [HelloController, TestRecordsController],
 })
 export class AppModule {}
