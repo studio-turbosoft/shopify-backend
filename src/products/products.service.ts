@@ -155,6 +155,8 @@ export class ProductsService {
     try {
       await this.prisma.product.delete({ where: { id } });
     } catch (e) {
+      // The products/delete webhook for our own productDelete got here first: already gone.
+      if (existing.shopifyProductId && isPrismaError(e, RECORD_NOT_FOUND)) return;
       // An order took this product between the check and the delete.
       if (isPrismaError(e, FK_VIOLATION)) {
         if (existing.shopifyProductId && session) {
@@ -189,7 +191,9 @@ export class ProductsService {
       shopifyProductId: ids.shopifyProductId,
       shopifyVariantId: ids.shopifyVariantId,
       shopifyInventoryItemId: ids.shopifyInventoryItemId,
-      shopifySyncedAt: new Date(),
+      // Shopify's product.updatedAt (not our clock): products/update webhooks with an updated_at
+      // up to this value are our own change and are ignored.
+      shopifySyncedAt: ids.updatedAt,
     };
   }
 

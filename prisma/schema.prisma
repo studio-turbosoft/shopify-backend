@@ -74,7 +74,10 @@ model Product {
   shopifyProductId       String?   @unique @db.VarChar(64)
   shopifyVariantId       String?   @unique @db.VarChar(64)
   shopifyInventoryItemId String?   @unique @db.VarChar(64)
-  /// When this row last matched Shopify; null = never synced.
+  /// Shopify's product.updatedAt when this row last matched Shopify (from productSet, the import or
+  /// a webhook), not our clock. products/update webhooks with updated_at <= this are our own change
+  /// and are ignored (loop guard). Stock pushes don't change it (they don't bump product.updatedAt).
+  /// null = not synced: never pushed, or the last push failed.
   shopifySyncedAt        DateTime? @db.Timestamp(6)
 
   // Organization
@@ -102,7 +105,8 @@ model Product {
   trackInventory                Boolean @default(true)
   /// variant.inventoryPolicy: CONTINUE (true) | DENY (false). When true, orders may take stock below zero.
   continueSellingWhenOutOfStock Boolean @default(false)
-  /// Total available across locations (Shopify keeps one quantity per location).
+  /// "available" at the shop's primary location (pushed by productSet / inventorySetQuantities,
+  /// read back by the import and inventory_levels/update). Other locations are not mirrored.
   stock                         Int     @default(0)
 
   // Shipping

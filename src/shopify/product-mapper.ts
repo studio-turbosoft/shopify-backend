@@ -1,6 +1,7 @@
 /**
- * Pure mapping from our single-variant Product to the Shopify Admin GraphQL (2026-10) inputs.
- * No Nest / Prisma imports, so it is easy to unit test.
+ * Pure mapping between our single-variant Product and Shopify Admin GraphQL (2026-10):
+ * product → productSet / inventorySetQuantities inputs, and (at the bottom) Shopify product → our
+ * columns for the import and webhooks. No Nest / Prisma imports, so it is easy to unit test.
  *
  * productSet:             https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/productSet
  * ProductSetInput:        https://shopify.dev/docs/api/admin-graphql/2026-10/input-objects/ProductSetInput
@@ -169,6 +170,216 @@ export function toInventorySetVariables(
         // Required since 2026-04; null explicitly opts out of the compare-and-swap check.
         changeFromQuantity: null,
       })),
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Shopify → our Product (import and webhooks). Reads the fields selected by SYNC_PRODUCT_FIELDS
+// in product-import.service.ts:
+//   products query: https://shopify.dev/docs/api/admin-graphql/2026-10/queries/products
+//   Product:        https://shopify.dev/docs/api/admin-graphql/2026-10/objects/Product
+//   ProductVariant: https://shopify.dev/docs/api/admin-graphql/2026-10/objects/ProductVariant
+//   InventoryItem:  https://shopify.dev/docs/api/admin-graphql/2026-10/objects/InventoryItem
+// ---------------------------------------------------------------------------------------------
+
+/** One product as returned by the sync query (only the fields we map). */
+export interface ShopifyProductNode {
+  id: string;
+  title: string;
+  descriptionHtml: string | null;
+  status: string;
+  productType: string | null;
+  vendor: string | null;
+  tags: string[];
+  /** ISO date-time; stored as shopifySyncedAt and compared by the webhook loop guard. */
+  updatedAt: string;
+  hasOnlyDefaultVariant: boolean;
+  variantsCount: { count: number; precision?: string } | null;
+  featuredMedia: {
+    mediaContentType: string;
+    preview: { image: { url: string } | null } | null;
+  } | null;
+  variants: { nodes: ShopifyVariantNode[] };
+}
+
+export interface ShopifyVariantNode {
+  id: string;
+  price: string;
+  compareAtPrice: string | null;
+  sku: string | null;
+  taxable: boolean;
+  inventoryPolicy: string;
+  barcodes: { nodes: { value: string }[] } | null;
+  inventoryItem: {
+    id: string;
+    tracked: boolean;
+    requiresShipping: boolean;
+    unitCost: { amount: string } | null;
+    measurement: { weight: { value: number; unit: string } | null } | null;
+    /** Level at the shop's primary location (null when the item isn't stocked there). */
+    inventoryLevel: { quantities: { name: string; quantity: number }[] } | null;
+  } | null;
+}
+
+/** A Shopify product converted to our columns, ready to upsert. */
+export interface ShopifyProductImport {
+  shopifyProductId: string;
+  shopifyVariantId: string;
+  shopifyInventoryItemId: string;
+  /** Shopify's product.updatedAt; stored as shopifySyncedAt. */
+  updatedAt: Date;
+  /**
+   * The product values. `imageUrl` is left out when Shopify's image is still processing
+   * (no URL yet): keep whatever we have instead of clearing it.
+   */
+  data: Omit<ProductSnapshot, 'imageUrl'> & { imageUrl?: string | null };
+}
+
+export type ShopifyProductMapResult =
+  | { ok: true; product: ShopifyProductImport }
+  | { ok: false; reason: string };
+
+/** Longest SKU our column takes (Shopify allows 255). */
+export const MAX_SKU_LENGTH = 64;
+
+const STATUS_FROM_SHOPIFY: Record<string, ProductStatusValue> = {
+  ACTIVE: 'active',
+  DRAFT: 'draft',
+  ARCHIVED: 'archived',
+};
+
+const WEIGHT_UNIT_FROM_SHOPIFY: Record<string, WeightUnitValue> = {
+  KILOGRAMS: 'kg',
+  GRAMS: 'g',
+  POUNDS: 'lb',
+  OUNCES: 'oz',
+};
+
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+};
+
+/** Decode HTML entities in one pass (so "&amp;lt;" becomes "&lt;", not "<"). Unknown ones are kept. */
+export function decodeHtmlEntities(s: string): string {
+  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, code: string) => {
+    if (code[0] === '#') {
+      const hex = code[1] === 'x' || code[1] === 'X';
+      const n = hex ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+      if (!Number.isFinite(n) || n <= 0 || n > 0x10ffff) return whole;
+      return n === 0xa0 ? ' ' : String.fromCodePoint(n);
+    }
+    return NAMED_ENTITIES[code.toLowerCase()] ?? whole;
+  });
+}
+
+/**
+ * Shopify descriptionHtml → our plain-text description (the reverse of toDescriptionHtml):
+ * <br> → line break, end of a paragraph / heading / list → blank line, list items → "- item",
+ * other tags are dropped and entities decoded. Empty → null.
+ */
+export function fromDescriptionHtml(html: string | null | undefined): string | null {
+  if (!html || !html.trim()) return null;
+  const text = html
+    // Line breaks in the HTML source are just whitespace.
+    .replace(/\s*[\r\n]+\s*/g, ' ')
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<li\b[^>]*>/gi, '\n- ')
+    .replace(/<\/tr\s*>/gi, '\n')
+    .replace(/<\/?(p|div|h[1-6]|ul|ol|blockquote|pre|table|section|article)\b[^>]*>/gi, '\n\n')
+    .replace(/<[^>]*>/g, '');
+  const plain = decodeHtmlEntities(text)
+    .split('\n')
+    .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return plain || null;
+}
+
+/** Money / Decimal strings ("19.90") → number; null, blank or invalid → null. */
+const parseAmount = (s: string | null | undefined): number | null => {
+  if (s == null || s === '') return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Shopify product → our columns. Products our single-variant model can't hold are refused with
+ * a reason: they are reported and never written, because pushing one back with productSet
+ * (single variant, default option) would delete its other variants / options in Shopify.
+ */
+export function fromShopifyProduct(node: ShopifyProductNode): ShopifyProductMapResult {
+  const variantCount = Math.max(node.variantsCount?.count ?? 0, node.variants.nodes.length);
+  if (variantCount > 1) {
+    return { ok: false, reason: `has ${variantCount} variants; only single-variant products are supported` };
+  }
+  if (!node.hasOnlyDefaultVariant) {
+    return { ok: false, reason: 'uses product options (e.g. Size or Color); only products without options are supported' };
+  }
+  const variant = node.variants.nodes[0];
+  const item = variant?.inventoryItem;
+  if (!variant || !item) return { ok: false, reason: 'has no variant' };
+
+  const status = STATUS_FROM_SHOPIFY[node.status];
+  if (!status) return { ok: false, reason: `status ${node.status} isn't supported` };
+
+  const sku = variant.sku?.trim() || null;
+  if (sku && sku.length > MAX_SKU_LENGTH) {
+    return { ok: false, reason: `SKU is longer than ${MAX_SKU_LENGTH} characters` };
+  }
+  const price = parseAmount(variant.price);
+  if (price == null) return { ok: false, reason: 'has no price' };
+  const updatedAt = new Date(node.updatedAt);
+  if (Number.isNaN(updatedAt.getTime())) return { ok: false, reason: 'has no valid updatedAt' };
+
+  const weight = item.measurement?.weight ?? null;
+  // Same definition the push uses: "available" at the primary location. Not stocked there → 0.
+  const available = item.inventoryLevel?.quantities.find((q) => q.name === 'available')?.quantity ?? 0;
+
+  const data: ShopifyProductImport['data'] = {
+    name: node.title,
+    description: fromDescriptionHtml(node.descriptionHtml),
+    status,
+    productType: node.productType?.trim() || null,
+    vendor: node.vendor?.trim() || null,
+    tags: node.tags ?? [],
+    price,
+    compareAtPrice: parseAmount(variant.compareAtPrice),
+    costPerItem: parseAmount(item.unitCost?.amount),
+    chargeTax: variant.taxable,
+    sku,
+    barcode: variant.barcodes?.nodes[0]?.value || null,
+    trackInventory: item.tracked,
+    continueSellingWhenOutOfStock: variant.inventoryPolicy === 'CONTINUE',
+    stock: available,
+    requiresShipping: item.requiresShipping,
+    // The push sends 0 for "no weight", so 0 maps back to null.
+    weight: weight && weight.value > 0 ? weight.value : null,
+    weightUnit: (weight && WEIGHT_UNIT_FROM_SHOPIFY[weight.unit]) || 'kg',
+  };
+
+  // Only images map to imageUrl. No featured media → null; an image still processing (no URL yet)
+  // → leave imageUrl out so the local value is kept.
+  const media = node.featuredMedia;
+  if (!media || media.mediaContentType !== 'IMAGE') data.imageUrl = null;
+  else if (media.preview?.image?.url) data.imageUrl = media.preview.image.url;
+
+  return {
+    ok: true,
+    product: {
+      shopifyProductId: node.id,
+      shopifyVariantId: variant.id,
+      shopifyInventoryItemId: item.id,
+      updatedAt,
+      data,
     },
   };
 }

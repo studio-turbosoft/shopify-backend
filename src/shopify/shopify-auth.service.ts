@@ -21,8 +21,13 @@ export class ShopifyAuthService {
 
   /** The saved access token for this store, or a new one from token exchange. */
   async getAccessToken(session: ShopifySession): Promise<string> {
-    const saved = await this.prisma.shop.findUnique({ where: { domain: session.shop } });
-    return saved?.accessToken ?? this.exchange(session);
+    return (await this.getSavedToken(session.shop)) ?? this.exchange(session);
+  }
+
+  /** The saved offline token, or null (used where no session token can be exchanged, e.g. webhooks). */
+  async getSavedToken(shop: string): Promise<string | null> {
+    const saved = await this.prisma.shop.findUnique({ where: { domain: shop } });
+    return saved?.accessToken ?? null;
   }
 
   /** Swap the session token for an offline access token and save it. */
