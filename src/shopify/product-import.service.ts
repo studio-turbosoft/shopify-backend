@@ -30,6 +30,9 @@ const SYNC_PRODUCT_FIELDS = `#graphql
       mediaContentType
       preview { image { url } }
     }
+    metafields(namespace: "custom", first: 10) {
+      nodes { key value }
+    }
     variants(first: 1) {
       nodes {
         id
@@ -55,8 +58,8 @@ const SYNC_PRODUCT_FIELDS = `#graphql
 
 /**
  * https://shopify.dev/docs/api/admin-graphql/2026-10/queries/products
- * Page size: each product costs about 17 points here (nested connections), and a single query
- * may cost at most 1,000, so 100 per page would be refused; 25 keeps a page around 430.
+ * Page size: each product costs about 28 points here (nested connections, incl. 10 metafields), and a
+ * single query may cost at most 1,000, so 100 per page would be refused; 25 keeps a page around 700.
  */
 const PRODUCTS_QUERY = `#graphql
   query SyncProducts($first: Int!, $after: String, $locationId: ID!) {
@@ -183,6 +186,7 @@ export class ProductImportService {
     const p = mapped.product;
     const data = {
       ...p.data,
+      metafields: p.metafields,
       shopifyProductId: p.shopifyProductId,
       shopifyVariantId: p.shopifyVariantId,
       shopifyInventoryItemId: p.shopifyInventoryItemId,

@@ -87,6 +87,9 @@ model Product {
   vendor      String?  @db.VarChar(255)
   /// product.tags
   tags        String[] @default([])
+  /// product.metafields in the "custom" namespace, grouped (read from Shopify, not pushed back):
+  /// { "warranty": { "period": "1 year", "description": "…" }, "other": { "test_field": "…" } }
+  metafields  Json     @default("{}")
 
   // Pricing
   /// variant.price

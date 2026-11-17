@@ -201,6 +201,8 @@ export interface ShopifyProductNode {
     preview: { image: { url: string } | null } | null;
   } | null;
   variants: { nodes: ShopifyVariantNode[] };
+  /** Metafields in the "custom" namespace (e.g. the ones the warranty admin block saves). */
+  metafields: { nodes: { key: string; value: string }[] } | null;
 }
 
 export interface ShopifyVariantNode {
@@ -234,6 +236,25 @@ export interface ShopifyProductImport {
    * (no URL yet): keep whatever we have instead of clearing it.
    */
   data: Omit<ProductSnapshot, 'imageUrl'> & { imageUrl?: string | null };
+  /** Stored in the metafields column. */
+  metafields: ProductMetafields;
+}
+
+/** { warranty: { period: "1 year" }, other: { test_field: "x" } } */
+export type ProductMetafields = Record<string, Record<string, string>>;
+
+/**
+ * Group metafields for the metafields column:
+ * "warranty_period" → warranty.period, "warranty_description" → warranty.description,
+ * anything else → other.<key>.
+ */
+export function groupMetafields(nodes: { key: string; value: string }[]): ProductMetafields {
+  const grouped: ProductMetafields = { warranty: {}, other: {} };
+  for (const { key, value } of nodes) {
+    if (key.startsWith('warranty_')) grouped.warranty[key.slice('warranty_'.length)] = value;
+    else grouped.other[key] = value;
+  }
+  return grouped;
 }
 
 export type ShopifyProductMapResult =
@@ -380,6 +401,7 @@ export function fromShopifyProduct(node: ShopifyProductNode): ShopifyProductMapR
       shopifyInventoryItemId: item.id,
       updatedAt,
       data,
+      metafields: groupMetafields(node.metafields?.nodes ?? []),
     },
   };
 }
