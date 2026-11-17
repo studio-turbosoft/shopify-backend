@@ -11,7 +11,7 @@ NestJS + Prisma + PostgreSQL API for products and orders. Used by `../react-app`
 5. `npm run start:dev` → http://localhost:3000/api
 
 The app starts even if the database is down. Prisma connects on the first query, so `/` and
-`/api/test-records` keep working and only the products/orders routes fail.
+`/api/hello` keep working and only the products/orders routes fail.
 
 ## Commands
 
@@ -68,7 +68,6 @@ Until then, run the tools with `node` directly:
 | Method | Path | Body |
 | --- | --- | --- |
 | GET | / | returns `Server is running` |
-| GET | /api/test-records | 5 static test records, no database |
 | GET | /api/products | |
 | GET | /api/products/:id | |
 | POST | /api/products | `{ name, sku, description?, price, stock }` |

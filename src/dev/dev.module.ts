@@ -1,9 +1,8 @@
 import { Module } from '@nestjs/common';
 import { HelloController } from './hello.controller';
-import { TestRecordsController } from './test-records.controller';
 
-/** Test routes that need no database: GET /api/hello and GET /api/test-records. */
+/** Health check that needs no database: GET /api/hello. */
 @Module({
-  controllers: [HelloController, TestRecordsController],
+  controllers: [HelloController],
 })
 export class DevModule {}

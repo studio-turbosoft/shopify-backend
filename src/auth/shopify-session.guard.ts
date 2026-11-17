@@ -6,8 +6,6 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 export interface ShopifySession {
   /** e.g. "my-store.myshopify.com" */
   shop: string;
-  /** Shopify admin user id (the token's `sub`) */
-  userId: string;
   /** The verified session token itself; token exchange swaps it for an Admin API access token. */
   token: string;
 }
@@ -85,7 +83,7 @@ export class ShopifySessionGuard implements CanActivate {
       throw new UnauthorizedException('Session token shop mismatch');
     }
 
-    return { shop, userId: String(p.sub ?? ''), token };
+    return { shop, token };
   }
 
   private decode(part: string): any {

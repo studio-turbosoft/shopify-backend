@@ -18,7 +18,7 @@ import { ShopNotConnectedError } from './shopify-admin.service';
  * Compliance topics (required for App Store apps only) are acknowledged and ignored:
  * https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance
  */
-export const COMPLIANCE_TOPICS = new Set(['customers/data_request', 'customers/redact', 'shop/redact']);
+const COMPLIANCE_TOPICS = new Set(['customers/data_request', 'customers/redact', 'shop/redact']);
 
 /** A verified delivery. */
 export interface WebhookDelivery {
@@ -41,14 +41,14 @@ export const isShopDomain = (s: string | undefined | null): s is string => !!s &
  * Digits of a top-level numeric field, read from the raw JSON (ids can exceed 2^53).
  * Falls back to the parsed value.
  */
-export function numericIdFromRaw(raw: string, key: string, parsed: unknown): string | null {
+function numericIdFromRaw(raw: string, key: string, parsed: unknown): string | null {
   const m = new RegExp(`"${key}"\\s*:\\s*"?(\\d+)`).exec(raw);
   if (m) return m[1];
   return typeof parsed === 'number' || (typeof parsed === 'string' && /^\d+$/.test(parsed)) ? String(parsed) : null;
 }
 
 /** HTTPS webhook HMAC: base64(HMAC-SHA256(raw body, client secret)), compared in constant time. */
-export function verifyWebhookHmac(raw: Buffer | undefined, header: string | undefined, secret: string | undefined): boolean {
+function verifyWebhookHmac(raw: Buffer | undefined, header: string | undefined, secret: string | undefined): boolean {
   if (!secret || !raw || !header) return false;
   const expected = createHmac('sha256', secret).update(raw).digest();
   const given = Buffer.from(header, 'base64');
@@ -92,8 +92,8 @@ export class ShopifyWebhookService {
     });
   }
 
-  /** Handle one delivery. Exposed for tests; normally called through accept(). */
-  async process(d: WebhookDelivery): Promise<void> {
+  /** Handle one delivery (called through accept()). */
+  private async process(d: WebhookDelivery): Promise<void> {
     if (COMPLIANCE_TOPICS.has(d.topic)) {
       // We keep no customer data from Shopify, so there is nothing to export or erase.
       this.logger.log(`Compliance webhook ${d.topic} from ${d.shop} acknowledged (no Shopify customer data stored)`);

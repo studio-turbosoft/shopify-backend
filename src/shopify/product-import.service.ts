@@ -77,7 +77,7 @@ const PRODUCT_QUERY = `#graphql
   }
   ${SYNC_PRODUCT_FIELDS}`;
 
-export const SYNC_PAGE_SIZE = 25;
+const SYNC_PAGE_SIZE = 25;
 
 interface ProductsPage {
   products: {

@@ -35,10 +35,6 @@ export class TtlMap<K, V> {
     this.entries.delete(key);
   }
 
-  clear(): void {
-    this.entries.clear();
-  }
-
   private prune() {
     const now = Date.now();
     for (const [key, entry] of this.entries) {

@@ -55,8 +55,8 @@ export interface ProductSetOptions {
 }
 
 /** Shopify represents a product without options as one option "Title" with the value "Default Title". */
-export const DEFAULT_OPTION_NAME = 'Title';
-export const DEFAULT_OPTION_VALUE = 'Default Title';
+const DEFAULT_OPTION_NAME = 'Title';
+const DEFAULT_OPTION_VALUE = 'Default Title';
 
 const STATUS: Record<ProductStatusValue, 'ACTIVE' | 'DRAFT' | 'ARCHIVED'> = {
   active: 'ACTIVE',
@@ -72,7 +72,7 @@ const WEIGHT_UNIT: Record<WeightUnitValue, 'KILOGRAMS' | 'GRAMS' | 'POUNDS' | 'O
 };
 
 /** Money / Decimal scalars are sent as strings, e.g. "19.90". */
-export const toMoney = (n: number): string => n.toFixed(2);
+const toMoney = (n: number): string => n.toFixed(2);
 
 const escapeHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -81,7 +81,7 @@ const escapeHtml = (s: string) =>
  * Plain-text description → safe HTML: HTML is escaped, blank lines start a new <p>,
  * single line breaks become <br>. Empty/blank → "".
  */
-export function toDescriptionHtml(text: string | null | undefined): string {
+function toDescriptionHtml(text: string | null | undefined): string {
   if (!text || !text.trim()) return '';
   return text
     .replace(/\r\n?/g, '\n')
@@ -151,7 +151,8 @@ function toVariantInput(p: ProductSnapshot, variantId: string | null, locationId
 
 /** Variables for inventorySetQuantities: set "available" to our absolute stock (no compare-and-swap). */
 export function toInventorySetVariables(
-  items: { inventoryItemId: string; stock: number }[],
+  inventoryItemId: string,
+  stock: number,
   locationId: string,
   idempotencyKey: string,
   referenceDocumentUri?: string,
@@ -163,13 +164,15 @@ export function toInventorySetVariables(
       // "correction": general adjustment; our database is the source of truth for stock.
       reason: 'correction',
       ...(referenceDocumentUri ? { referenceDocumentUri } : {}),
-      quantities: items.map((i) => ({
-        inventoryItemId: i.inventoryItemId,
-        locationId,
-        quantity: i.stock,
-        // Required since 2026-04; null explicitly opts out of the compare-and-swap check.
-        changeFromQuantity: null,
-      })),
+      quantities: [
+        {
+          inventoryItemId,
+          locationId,
+          quantity: stock,
+          // Required since 2026-04; null explicitly opts out of the compare-and-swap check.
+          changeFromQuantity: null,
+        },
+      ],
     },
   };
 }
@@ -262,7 +265,7 @@ export type ShopifyProductMapResult =
   | { ok: false; reason: string };
 
 /** Longest SKU our column takes (Shopify allows 255). */
-export const MAX_SKU_LENGTH = 64;
+const MAX_SKU_LENGTH = 64;
 
 const STATUS_FROM_SHOPIFY: Record<string, ProductStatusValue> = {
   ACTIVE: 'active',
@@ -287,7 +290,7 @@ const NAMED_ENTITIES: Record<string, string> = {
 };
 
 /** Decode HTML entities in one pass (so "&amp;lt;" becomes "&lt;", not "<"). Unknown ones are kept. */
-export function decodeHtmlEntities(s: string): string {
+function decodeHtmlEntities(s: string): string {
   return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, code: string) => {
     if (code[0] === '#') {
       const hex = code[1] === 'x' || code[1] === 'X';
@@ -304,7 +307,7 @@ export function decodeHtmlEntities(s: string): string {
  * <br> → line break, end of a paragraph / heading / list → blank line, list items → "- item",
  * other tags are dropped and entities decoded. Empty → null.
  */
-export function fromDescriptionHtml(html: string | null | undefined): string | null {
+function fromDescriptionHtml(html: string | null | undefined): string | null {
   if (!html || !html.trim()) return null;
   const text = html
     // Line breaks in the HTML source are just whitespace.

@@ -7,6 +7,5 @@ import { ProductsService } from './products.service';
   imports: [ShopifyModule],
   controllers: [ProductsController],
   providers: [ProductsService],
-  exports: [ProductsService],
 })
 export class ProductsModule {}

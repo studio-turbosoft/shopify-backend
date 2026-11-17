@@ -16,6 +16,6 @@ import { ShopifyWebhooksController } from './shopify-webhooks.controller';
   controllers: [ShopController, ShopifySyncController, ShopifyWebhooksController],
   providers: [ShopifyAuthService, ShopifyAdminService, ProductSyncService, ProductImportService, ShopifyWebhookService],
   // Products and orders push their changes to Shopify through ProductSyncService.
-  exports: [ShopifyAdminService, ProductSyncService],
+  exports: [ProductSyncService],
 })
 export class ShopifyModule {}

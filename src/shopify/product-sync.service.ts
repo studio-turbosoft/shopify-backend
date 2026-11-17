@@ -307,7 +307,8 @@ export class ProductSyncService {
   ): Promise<void> {
     // One key per logical change; ShopifyAdminService's 401 retry resends the same variables, so it is reused.
     const variables = toInventorySetVariables(
-      [{ inventoryItemId, stock }],
+      inventoryItemId,
+      stock,
       locationId,
       randomUUID(),
       orderId ? `gid://shopify-nest/Order/${orderId}` : undefined,

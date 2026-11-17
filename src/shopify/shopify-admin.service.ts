@@ -14,7 +14,7 @@ const MAX_THROTTLE_WAIT_MS = 30_000;
  * Readable message for an ACCESS_DENIED error. Shopify's message names the scope, e.g.
  * "Access denied for productSet field. Required access: `write_products` access scope."
  */
-export function missingScopeMessage(reason: string): string {
+function missingScopeMessage(reason: string): string {
   const scopes = [...new Set([...reason.matchAll(/`(\w+)` access scope/g)].map((m) => m[1]))];
   const which = scopes.length ? `the ${scopes.join(' / ')} scope` : 'a scope it does not have';
   return (
@@ -41,7 +41,7 @@ interface GraphqlBody<T> {
  * and `extensions.cost.throttleStatus`; we wait until enough points are restored for the query.
  * https://shopify.dev/docs/apps/build/apis/graphql-admin/rate-limits
  */
-export function throttleDelayMs(status: number, retryAfter: string | null, body: GraphqlBody<unknown> | null): number | null {
+function throttleDelayMs(status: number, retryAfter: string | null, body: GraphqlBody<unknown> | null): number | null {
   if (status === 429) {
     const seconds = Number(retryAfter);
     return Math.min(Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 2000, MAX_THROTTLE_WAIT_MS);
