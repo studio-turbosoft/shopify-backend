@@ -55,6 +55,21 @@ function throttleDelayMs(status: number, retryAfter: string | null, body: Graphq
   return Math.min(Math.max(ms, 1000), MAX_THROTTLE_WAIT_MS);
 }
 
+/** The response body as JSON, or null if it isn't JSON. */
+function readBody<T>(res: Response): Promise<GraphqlBody<T> | null> {
+  return res.json().catch(() => null) as Promise<GraphqlBody<T> | null>;
+}
+
+/** The error to throw for a failed Admin API call (names the missing scope on ACCESS_DENIED). */
+function shopifyError(status: number, errors: GraphqlBody<unknown>['errors']): BadGatewayException {
+  const reason = Array.isArray(errors) ? errors.map((e) => e.message).join('; ') : errors || `HTTP ${status}`;
+  const accessDenied =
+    status === 403 ||
+    (Array.isArray(errors) && errors.some((e) => e.extensions?.code === 'ACCESS_DENIED')) ||
+    /access denied/i.test(reason);
+  return new BadGatewayException(accessDenied ? missingScopeMessage(reason) : `Shopify Admin API error: ${reason}`);
+}
+
 /** The shop has no saved access token (never opened the app, or uninstalled it). */
 export class ShopNotConnectedError extends Error {
   constructor(
@@ -128,29 +143,20 @@ export class ShopifyAdminService {
       res = await this.post(shop, token, query, variables);
     }
 
-    for (let attempt = 0; ; attempt++) {
-      const body = (await res.json().catch(() => null)) as GraphqlBody<T> | null;
+    let body = await readBody<T>(res);
 
-      // Throttled requests aren't executed, so they are safe to resend (mutations included).
+    // Throttled: wait and resend. Throttled requests aren't executed, so this is safe for mutations too.
+    for (let attempt = 1; attempt <= MAX_THROTTLE_RETRIES; attempt++) {
       const wait = throttleDelayMs(res.status, res.headers.get('retry-after'), body);
-      if (wait !== null && attempt < MAX_THROTTLE_RETRIES) {
-        this.logger.warn(`Shopify throttled a request for ${shop}; retrying in ${wait} ms`);
-        await new Promise((r) => setTimeout(r, wait));
-        res = await this.post(shop, token, query, variables);
-        continue;
-      }
-
-      if (!res.ok || !body || body.errors) {
-        const errors = body?.errors;
-        const reason = Array.isArray(errors) ? errors.map((e) => e.message).join('; ') : errors || `HTTP ${res.status}`;
-        const accessDenied =
-          res.status === 403 ||
-          (Array.isArray(errors) && errors.some((e) => e.extensions?.code === 'ACCESS_DENIED')) ||
-          /access denied/i.test(reason);
-        throw new BadGatewayException(accessDenied ? missingScopeMessage(reason) : `Shopify Admin API error: ${reason}`);
-      }
-      return body.data as T;
+      if (wait === null) break;
+      this.logger.warn(`Shopify throttled a request for ${shop}; retrying in ${wait} ms`);
+      await new Promise((r) => setTimeout(r, wait));
+      res = await this.post(shop, token, query, variables);
+      body = await readBody<T>(res);
     }
+
+    if (!res.ok || !body || body.errors) throw shopifyError(res.status, body?.errors);
+    return body.data as T;
   }
 
   private post(shop: string, accessToken: string, query: string, variables?: Record<string, unknown>) {
